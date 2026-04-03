@@ -1,0 +1,81 @@
+name: Trading Monitor
+
+on:
+  schedule:
+    - cron: '0 8 * * 1-5'      # 11:00 IST
+    # - cron: '0 13 * * 1-5'     # 16:00 IST
+    # - cron: '0 14 * * 1-5'     # 17:00 IST
+    # - cron: '30 16 * * 1-5'    # 19:30 IST
+    # - cron: '30 19 * * 1-5'    # 22:30 IST
+
+  # Allow manual triggering for testing
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run in dry mode (no Slack notifications)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  trading-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: latest
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+        installer-parallel: true
+
+    - name: Install dependencies
+      run: poetry install --no-interaction
+
+    - name: Write configuration from secret
+      env:
+        SYMBOLS_CONFIG: ${{ secrets.SYMBOLS_CONFIG }}
+      run: |
+        if [ -z "$SYMBOLS_CONFIG" ]; then
+          echo "❌ SYMBOLS_CONFIG secret not set"
+          exit 1
+        fi
+        echo "$SYMBOLS_CONFIG" > config/symbols.json
+        echo "✅ Configuration file written from secret"
+
+    - name: Run market scan
+      env:
+        # Slack Configuration
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+
+        # Trading Configuration
+        THRESHOLD_PERCENTAGE: ${{ secrets.THRESHOLD_PERCENTAGE }}
+        COOLDOWN_HOURS: ${{ secrets.COOLDOWN_HOURS }}
+
+        # Application Configuration
+        LOG_LEVEL: INFO
+        DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        CONFIG_FILE_PATH: config/symbols.json
+
+      run: |
+        echo "Starting trading monitor..."
+        echo "  - Dry run: $DRY_RUN"
+
+        poetry run python src/main.py

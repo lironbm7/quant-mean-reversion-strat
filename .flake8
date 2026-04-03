@@ -1,0 +1,51 @@
+[flake8]
+# Maximum line length
+max-line-length = 120
+
+# List of files and directories to exclude from checking
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    env,
+    .env,
+    build,
+    dist,
+    *.egg-info,
+    .tox,
+    .pytest_cache,
+    .mypy_cache,
+    .idea,
+    .vscode
+
+# Maximum complexity for McCabe plugin
+max-complexity = 12
+
+# List of error and warning codes to ignore
+ignore =
+    # E203: whitespace before ':' (conflicts with black)
+    E203,
+    # W503: line break before binary operator (conflicts with PEP 8)
+    W503,
+    # W504: line break after binary operator
+    W504
+
+# List of error and warning codes to enable
+select =
+    E,  # pycodestyle errors
+    W,  # pycodestyle warnings
+    F,  # pyflakes
+    C,  # mccabe complexity
+
+# Count the number of occurrences of each error/warning code and show it at the end
+count = True
+
+# Show source code for each error
+show-source = True
+
+# Show pep8 source for each error
+show-pep8 = True
+
+# Print total number of errors and warnings to stderr and set exit code to 1 if total is not null
+statistics = True

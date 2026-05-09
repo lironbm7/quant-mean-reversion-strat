@@ -34,3 +34,14 @@ All configuration lives in **GitHub Secrets** (Settings > Secrets and variables 
 | `SYMBOLS_CONFIG` | Full JSON config (symbols, indicators, thresholds) |
 | `THRESHOLD_PERCENTAGE` | `10.0` |
 | `COOLDOWN_HOURS` | `24` |
+
+### Creating the `SLACK_BOT_TOKEN`
+
+1. Go to https://api.slack.com/apps → **Create New App** → **From scratch**. Name it (e.g. "Trading Bot") and pick your workspace.
+2. Open **OAuth & Permissions** → **Scopes** → **Bot Token Scopes** and add:
+   - `chat:write` — post messages
+   - `chat:write.customize` — required because alerts override `username` and `icon_emoji`
+   - `chat:write.public` *(optional)* — post to public channels without being invited
+3. Scroll up → **Install to Workspace** → approve. Copy the **Bot User OAuth Token** (starts with `xoxb-`) — this is `SLACK_BOT_TOKEN`.
+4. In Slack, invite the bot to the alert channel: `/invite @your-bot-name` in `#trading-alerts` (skip if you added `chat:write.public` and the channel is public).
+5. Add it under **Settings → Secrets and variables → Actions → New repository secret** along with `SLACK_CHANNEL`.

@@ -53,11 +53,13 @@ jobs:
         SYMBOLS_CONFIG: ${{ secrets.SYMBOLS_CONFIG }}
       run: |
         if [ -z "$SYMBOLS_CONFIG" ]; then
-          echo "❌ SYMBOLS_CONFIG secret not set"
+          echo "::error::SYMBOLS_CONFIG secret not set"
           exit 1
         fi
-        echo "$SYMBOLS_CONFIG" > config/symbols.json
-        echo "✅ Configuration file written from secret"
+        # Use printenv so the value never appears on a command line and
+        # cannot be accidentally echoed.
+        printenv SYMBOLS_CONFIG > config/symbols.json
+        echo "Config file written (content not printed)."
 
     - name: Run market scan
       env:
@@ -69,13 +71,20 @@ jobs:
         THRESHOLD_PERCENTAGE: ${{ secrets.THRESHOLD_PERCENTAGE }}
         COOLDOWN_HOURS: ${{ secrets.COOLDOWN_HOURS }}
 
-        # Application Configuration
-        LOG_LEVEL: INFO
+        # Application Configuration — ERROR-only logs, full output redirected
+        # below; alerts go ONLY to Slack, never to the workflow logs.
+        LOG_LEVEL: ERROR
         DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         CONFIG_FILE_PATH: config/symbols.json
 
       run: |
-        echo "Starting trading monitor..."
-        echo "  - Dry run: $DRY_RUN"
-
-        poetry run python src/main.py
+        # Redirect stdout+stderr to /dev/null so symbol names, prices, and
+        # alert details cannot leak into the public workflow logs. Slack
+        # notifications go via HTTPS and are unaffected. Exit code is
+        # preserved so GitHub Actions still flags failures correctly.
+        if poetry run python src/main.py >/dev/null 2>&1; then
+          echo "Scan completed."
+        else
+          echo "::error::Scan failed (see Slack for details if configured)."
+          exit 1
+        fi

@@ -1,7 +1,7 @@
 """Market data service with YFinance integration and technical indicators."""
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -65,20 +65,20 @@ class YFinanceProvider(MarketDataProvider):
             logger.error(f"Error fetching current price for {symbol}: {e}")
             raise
 
-    # Map BarPeriod -> (yfinance interval, yfinance period, optional
-    # pandas-resample target). Yahoo only allows "max" on daily+ bars
-    # and caps intraday data at 730 days; "4h" is not a native interval
-    # so we fetch 1h and resample.
+    # Map BarPeriod -> (yfinance interval, lookback in days or None, optional
+    # pandas-resample target). Yahoo caps intraday data at 730 days and only
+    # daily+ bars accept period="max"; lookback_days=None means use period=max.
+    # "4h" is not a native interval, so we fetch 1h and resample.
     _PERIOD_SPEC = {
-        BarPeriod.ONE_MINUTE:      ("1m",  "7d",   None),
-        BarPeriod.FIVE_MINUTES:    ("5m",  "60d",  None),
-        BarPeriod.FIFTEEN_MINUTES: ("15m", "60d",  None),
-        BarPeriod.THIRTY_MINUTES:  ("30m", "60d",  None),
-        BarPeriod.ONE_HOUR:        ("1h",  "730d", None),
-        BarPeriod.FOUR_HOURS:      ("1h",  "730d", "4h"),
-        BarPeriod.ONE_DAY:         ("1d",  "max",  None),
-        BarPeriod.ONE_WEEK:        ("1wk", "max",  None),
-        BarPeriod.ONE_MONTH:       ("1mo", "max",  None),
+        BarPeriod.ONE_MINUTE:      ("1m",  7,    None),
+        BarPeriod.FIVE_MINUTES:    ("5m",  60,   None),
+        BarPeriod.FIFTEEN_MINUTES: ("15m", 60,   None),
+        BarPeriod.THIRTY_MINUTES:  ("30m", 60,   None),
+        BarPeriod.ONE_HOUR:        ("1h",  729,  None),
+        BarPeriod.FOUR_HOURS:      ("1h",  729,  "4h"),
+        BarPeriod.ONE_DAY:         ("1d",  None, None),
+        BarPeriod.ONE_WEEK:        ("1wk", None, None),
+        BarPeriod.ONE_MONTH:       ("1mo", None, None),
     }
 
     async def get_historical_data(
@@ -91,18 +91,28 @@ class YFinanceProvider(MarketDataProvider):
         try:
             ticker = yf.Ticker(symbol)
 
-            interval, yf_period, resample_to = self._PERIOD_SPEC.get(
-                period, ("1d", "max", None)
+            interval, lookback_days, resample_to = self._PERIOD_SPEC.get(
+                period, ("1d", None, None)
             )
 
             # Use auto_adjust=False for more accurate historical calculations
-            # Include extended hours data (prepost=True) for pre-market and after-hours
-            hist = ticker.history(
-                period=yf_period,
+            # Include extended hours data (prepost=True) for pre-market and after-hours.
+            # For intraday intervals, pass explicit start/end so we never exceed
+            # Yahoo's 730-day cap (yfinance otherwise expands the start to the
+            # ticker's IPO date, which fails for tickers listed >730 days ago).
+            history_kwargs = dict(
                 interval=interval,
                 auto_adjust=False,
-                prepost=True
+                prepost=True,
             )
+            if lookback_days is None:
+                history_kwargs["period"] = "max"
+            else:
+                end = datetime.now()
+                history_kwargs["start"] = end - timedelta(days=lookback_days)
+                history_kwargs["end"] = end
+
+            hist = ticker.history(**history_kwargs)
 
             if hist.empty:
                 raise ValueError(f"No historical data available for {symbol}")

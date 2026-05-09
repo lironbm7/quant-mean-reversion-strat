@@ -2,11 +2,9 @@ name: Trading Monitor
 
 on:
   schedule:
-    - cron: '0 8 * * 1-5'      # 11:00 IST
-    # - cron: '0 13 * * 1-5'     # 16:00 IST
-    # - cron: '0 14 * * 1-5'     # 17:00 IST
-    # - cron: '30 16 * * 1-5'    # 19:30 IST
-    # - cron: '30 19 * * 1-5'    # 22:30 IST
+    # GitHub Actions cron is UTC only. Locked to IDT (UTC+3): 08:30 UTC ==
+    # 11:30 Israel summer time, 10:30 Israel winter time (IST = UTC+2).
+    - cron: '30 8 * * 1-5'
 
   # Allow manual triggering for testing
   workflow_dispatch:

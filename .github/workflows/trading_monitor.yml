@@ -78,11 +78,12 @@ jobs:
         CONFIG_FILE_PATH: config/symbols.json
 
       run: |
-        # Redirect stdout+stderr to /dev/null so symbol names, prices, and
-        # alert details cannot leak into the public workflow logs. Slack
-        # notifications go via HTTPS and are unaffected. Exit code is
-        # preserved so GitHub Actions still flags failures correctly.
-        if poetry run python src/main.py >/dev/null 2>&1; then
+        # Drop stdout so verbose INFO output (config summaries, symbol
+        # names, prices, alert details) cannot leak into the public
+        # workflow logs. Loguru is configured to write to stderr, and
+        # LOG_LEVEL=ERROR keeps only error-level diagnostics visible.
+        # Slack notifications go via HTTPS and are unaffected.
+        if poetry run python src/main.py >/dev/null; then
           echo "Scan completed."
         else
           echo "::error::Scan failed (see Slack for details if configured)."

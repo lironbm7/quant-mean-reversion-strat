@@ -17,9 +17,11 @@ def setup_logging(
     # Remove default handler
     logger.remove()
 
-    # Console handler with colors
+    # Console handler with colors. Use stderr so CI can suppress stdout
+    # (which carries verbose INFO output like config summaries and alert
+    # details) while still surfacing error-level diagnostics.
     logger.add(
-        sys.stdout,
+        sys.stderr,
         level=level,
         format=(
             "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "

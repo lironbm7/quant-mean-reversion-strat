@@ -65,6 +65,22 @@ class YFinanceProvider(MarketDataProvider):
             logger.error(f"Error fetching current price for {symbol}: {e}")
             raise
 
+    # Map BarPeriod -> (yfinance interval, yfinance period, optional
+    # pandas-resample target). Yahoo only allows "max" on daily+ bars
+    # and caps intraday data at 730 days; "4h" is not a native interval
+    # so we fetch 1h and resample.
+    _PERIOD_SPEC = {
+        BarPeriod.ONE_MINUTE:      ("1m",  "7d",   None),
+        BarPeriod.FIVE_MINUTES:    ("5m",  "60d",  None),
+        BarPeriod.FIFTEEN_MINUTES: ("15m", "60d",  None),
+        BarPeriod.THIRTY_MINUTES:  ("30m", "60d",  None),
+        BarPeriod.ONE_HOUR:        ("1h",  "730d", None),
+        BarPeriod.FOUR_HOURS:      ("1h",  "730d", "4h"),
+        BarPeriod.ONE_DAY:         ("1d",  "max",  None),
+        BarPeriod.ONE_WEEK:        ("1wk", "max",  None),
+        BarPeriod.ONE_MONTH:       ("1mo", "max",  None),
+    }
+
     async def get_historical_data(
         self,
         symbol: str,
@@ -75,25 +91,14 @@ class YFinanceProvider(MarketDataProvider):
         try:
             ticker = yf.Ticker(symbol)
 
-            # Map bar periods to yfinance intervals
-            interval_map = {
-                BarPeriod.ONE_MINUTE: "1m",
-                BarPeriod.FIVE_MINUTES: "5m",
-                BarPeriod.FIFTEEN_MINUTES: "15m",
-                BarPeriod.THIRTY_MINUTES: "30m",
-                BarPeriod.ONE_HOUR: "1h",
-                BarPeriod.FOUR_HOURS: "4h",
-                BarPeriod.ONE_DAY: "1d",
-                BarPeriod.ONE_WEEK: "1wk",
-                BarPeriod.ONE_MONTH: "1mo",
-            }
-
-            interval = interval_map.get(period, "1d")
+            interval, yf_period, resample_to = self._PERIOD_SPEC.get(
+                period, ("1d", "max", None)
+            )
 
             # Use auto_adjust=False for more accurate historical calculations
             # Include extended hours data (prepost=True) for pre-market and after-hours
             hist = ticker.history(
-                period="max",
+                period=yf_period,
                 interval=interval,
                 auto_adjust=False,
                 prepost=True
@@ -102,11 +107,24 @@ class YFinanceProvider(MarketDataProvider):
             if hist.empty:
                 raise ValueError(f"No historical data available for {symbol}")
 
+            if resample_to is not None:
+                hist = self._resample_ohlcv(hist, resample_to)
+                if hist.empty:
+                    raise ValueError(f"No historical data available for {symbol}")
+
             return hist
 
         except Exception as e:
             logger.error(f"Error fetching historical data for {symbol}: {e}")
             raise
+
+    @staticmethod
+    def _resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
+        """Resample OHLCV bars to a coarser interval (e.g. 1h -> 4h)."""
+        agg = {"Open": "first", "High": "max", "Low": "min", "Close": "last"}
+        if "Volume" in df.columns:
+            agg["Volume"] = "sum"
+        return df.resample(rule).agg(agg).dropna(subset=["Close"])
 
 
 class IndicatorCalculator:

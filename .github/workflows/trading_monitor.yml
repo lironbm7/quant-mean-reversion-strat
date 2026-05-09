@@ -67,9 +67,11 @@ jobs:
         SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
 
-        # Trading Configuration
-        THRESHOLD_PERCENTAGE: ${{ secrets.THRESHOLD_PERCENTAGE }}
-        COOLDOWN_HOURS: ${{ secrets.COOLDOWN_HOURS }}
+        # Trading Configuration — secrets may be unset; only export when
+        # non-empty so defaults in config/settings.py apply otherwise.
+        # An empty string overrides the default and breaks pydantic parsing.
+        _THRESHOLD_PERCENTAGE: ${{ secrets.THRESHOLD_PERCENTAGE }}
+        _COOLDOWN_HOURS: ${{ secrets.COOLDOWN_HOURS }}
 
         # Application Configuration — ERROR-only logs, full output redirected
         # below; alerts go ONLY to Slack, never to the workflow logs.
@@ -78,6 +80,15 @@ jobs:
         CONFIG_FILE_PATH: config/symbols.json
 
       run: |
+        # Promote optional trading-config secrets to real env vars only when
+        # they have a value; otherwise let Settings() fall back to defaults.
+        if [ -n "$_THRESHOLD_PERCENTAGE" ]; then
+          export THRESHOLD_PERCENTAGE="$_THRESHOLD_PERCENTAGE"
+        fi
+        if [ -n "$_COOLDOWN_HOURS" ]; then
+          export COOLDOWN_HOURS="$_COOLDOWN_HOURS"
+        fi
+
         # Drop stdout so verbose INFO output (config summaries, symbol
         # names, prices, alert details) cannot leak into the public
         # workflow logs. Loguru is configured to write to stderr, and

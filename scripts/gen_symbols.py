@@ -34,12 +34,23 @@ TREND_OUTPUT = Path(
 )
 OUT = Path(__file__).resolve().parents[1] / "config" / "symbols.json"
 
-WATCHLIST = [
-    "TE", "AXTI", "AEHR", "RGTI", "NOK", "ARM", "NBIS", "AAOI", "MU", "ALAB",
-    "MRVL", "BE", "INTC", "SNDK", "WDC", "QCOM", "COHR", "APLD", "TSEM",
-    "LITE", "STX", "CAMT", "CDNS", "CRWV", "ANET", "VRT", "DELL", "TSM",
-    "ASML", "CRDO", "JBL", "GEV",
+# Core AI / semiconductor-complex names: get RELIABLE short/mid bounce bands
+# (n>=3, >=80% success) PLUS a long-term structural anchor.
+CORE_AI = [
+    "AXTI", "AEHR", "RGTI", "NOK", "ARM", "NBIS", "AAOI", "MU", "ALAB", "MRVL",
+    "BE", "INTC", "SNDK", "WDC", "QCOM", "COHR", "TSEM", "LITE", "STX", "CAMT",
+    "CRWV", "ANET", "VRT", "DELL", "ASML", "CRDO", "JBL", "GEV", "NVDA", "AVGO",
 ]
+
+# Everything else (megacaps, indices, crypto, software/cybersecurity): only the
+# long-term structural support is alerted on — no short/mid bounce noise.
+NON_AI = [
+    "DDOG", "CRWD", "PANW", "ORCL", "PLTR", "TSLA", "COIN", "META", "GOOGL",
+    "MSFT", "NFLX", "AMZN", "GLD", "SPY", "QQQ", "AAPL", "BTC-USD", "ETH-USD",
+]
+
+ALL_TICKERS = CORE_AI + NON_AI
+_CORE_AI_SET = set(CORE_AI)
 
 MIN_RESOLVED = 3
 MIN_SUCCESS = 0.80
@@ -47,20 +58,19 @@ DEDUP_PCT = 0.015          # lines within 1.5% of each other = same support
 KEEP_MID = 2               # short/mid bounce levels kept per symbol
 TF_RANK = {"1d": 3, "4h": 2, "1h": 1}
 
-THRESHOLD_PCT = 2.0        # alert when price is within this % of a line ("at" it, not "approaching")
+THRESHOLD_PCT = 4.0        # alert when price is within this % of a line
 COOLDOWN_HOURS = 24
 
 
 def reliable(info: dict) -> list[dict]:
-    out = [c for c in info.get("all_qualified", [])
-           if c["n_resolved"] >= MIN_RESOLVED and c["success_rate"] >= MIN_SUCCESS
-           and c.get("ema_value_now")]
-    if out:
-        return out
-    # fallback: no high-evidence band — take the best-scoring qualified lines
-    # so every watchlist symbol still gets an alert level.
-    return sorted((c for c in info.get("all_qualified", []) if c.get("ema_value_now")),
-                  key=lambda c: -c["score"])[:2]
+    """Only statistically-reliable bounce bands (n>=3, >=80% success).
+
+    No fallback: a wonky/thin short-term band is NOT added. A name with no
+    reliable short band gets only its long-term anchor.
+    """
+    return [c for c in info.get("all_qualified", [])
+            if c["n_resolved"] >= MIN_RESOLVED and c["success_rate"] >= MIN_SUCCESS
+            and c.get("ema_value_now")]
 
 
 def dedup(cands: list[dict]) -> list[dict]:
@@ -91,60 +101,48 @@ def _daily_closes(ticker: str) -> Optional[pd.Series]:
         return None
 
 
-def structural_levels(ticker: str) -> list[tuple[str, str, float]]:
-    """Live structural levels as (bar, indicator, value), deepest-supporting:
-
-    - long-term anchor: 1w/SMA200 (the '200-week' floor) when >=200 weeks exist,
-      else 1d/EMA200 when >=200 daily bars, else none (too new).
-    - mid recovery line: 1d/EMA50 (only used as a fallback when a name has no
-      validated short/mid bounce band — i.e. it's currently below its MAs).
-    """
+def long_term_anchor(ticker: str) -> Optional[tuple[str, str, float]]:
+    """The deep structural support: 1w/SMA200 (the '200-week' floor) when >=200
+    weeks of history exist, else 1d/EMA200 when >=200 daily bars, else None."""
     close = _daily_closes(ticker)
-    if close is None or len(close) < 50:
-        return []
-    out: list[tuple[str, str, float]] = []
-    ema50 = float(close.ewm(span=50, adjust=False).mean().iloc[-1])
-    out.append(("1d", "EMA50", ema50))  # mid fallback (filtered out later if dupe)
-
+    if close is None:
+        return None
     weekly = close.resample("1W").last().dropna()
     if len(weekly) >= 200:
-        out.append(("1w", "SMA200", float(weekly.rolling(200).mean().iloc[-1])))
-    elif len(close) >= 200:
-        out.append(("1d", "EMA200", float(close.ewm(span=200, adjust=False).mean().iloc[-1])))
-    return out
+        return ("1w", "SMA200", float(weekly.rolling(200).mean().iloc[-1]))
+    if len(close) >= 200:
+        return ("1d", "EMA200", float(close.ewm(span=200, adjust=False).mean().iloc[-1]))
+    return None
 
 
 def build_entry(ticker: str) -> tuple[Optional[dict], str]:
-    """Combine validated short/mid bounce bands with a long-term anchor.
+    """Build a symbol's alert levels.
 
-    Each symbol gets up to KEEP_MID validated bounce levels (4h/1d, from the
-    trend-following research) plus one deep structural anchor (200-week / 200d),
-    all deduped by price level to keep it low-noise.
+    - Core AI/semi names: up to KEEP_MID *reliable* short/mid bounce bands
+      (4h/1d) plus the long-term anchor.
+    - Non-AI names: the long-term anchor ONLY (no short/mid bounce noise).
+    All deduped by price level.
     """
+    is_ai = ticker in _CORE_AI_SET
     f = TREND_OUTPUT / f"{ticker}.json"
     info = json.loads(f.read_text()) if f.exists() else {"all_qualified": []}
 
-    # short/mid bounce levels (validated). Empty when the name is below its MAs.
-    mids = dedup(reliable(info))[:KEEP_MID] if info.get("all_qualified") else []
-    chosen: list[tuple[str, str, float]] = [
-        (c["timeframe"], f"EMA{c['ema']}", c["ema_value_now"]) for c in mids
-    ]
+    chosen: list[tuple[str, str, float]] = []
+    if is_ai:
+        for c in dedup(reliable(info))[:KEEP_MID]:
+            chosen.append((c["timeframe"], f"EMA{c['ema']}", c["ema_value_now"]))
 
-    # structural levels (live): drop EMA50 fallback if we already have bounce bands.
-    struct = structural_levels(ticker)
-    for bar, ind, lvl in struct:
-        if ind == "EMA50" and bar == "1d" and chosen:
-            continue  # already have validated mid levels; don't add the generic 50
-        if any(abs(lvl - kl) / kl <= DEDUP_PCT for _, _, kl in chosen):
-            continue  # collides with an existing line
-        chosen.append((bar, ind, lvl))
+    anchor = long_term_anchor(ticker)
+    if anchor and not any(abs(anchor[2] - kl) / kl <= DEDUP_PCT for _, _, kl in chosen):
+        chosen.append(anchor)
 
     if not chosen:
-        return None, f"{ticker}: no levels (too new / no data), skipped"
+        return None, f"{ticker}: no reliable level (no respected support / too new), skipped"
 
     indicators = [{"bar": b, "indicator": i} for b, i, _ in chosen]
+    kind = "AI" if is_ai else "non-AI(LT-only)"
     tag = ", ".join(f"{b}/{i}@{v:.2f}" for b, i, v in chosen)
-    return {"symbol": ticker, "indicators": indicators}, f"{ticker}: {tag}"
+    return {"symbol": ticker, "indicators": indicators}, f"{ticker} [{kind}]: {tag}"
 
 
 def main() -> None:
@@ -156,7 +154,7 @@ def main() -> None:
                     help="preserve existing symbols.json entries; only add/replace the given tickers")
     args = ap.parse_args()
 
-    tickers = args.tickers if args.tickers else WATCHLIST
+    tickers = args.tickers if args.tickers else ALL_TICKERS
 
     new_entries: dict[str, dict] = {}
     notes = []

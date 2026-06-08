@@ -47,7 +47,7 @@ DEDUP_PCT = 0.015          # lines within 1.5% of each other = same support
 KEEP_MID = 2               # short/mid bounce levels kept per symbol
 TF_RANK = {"1d": 3, "4h": 2, "1h": 1}
 
-THRESHOLD_PCT = 4.0        # alert when price is within this % of a line
+THRESHOLD_PCT = 2.0        # alert when price is within this % of a line ("at" it, not "approaching")
 COOLDOWN_HOURS = 24
 
 

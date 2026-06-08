@@ -1,7 +1,8 @@
 """Configuration models for the trading notifier."""
 
+import re
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from pydantic import BaseModel, Field, validator
 
@@ -21,7 +22,12 @@ class BarPeriod(str, Enum):
 
 
 class IndicatorType(str, Enum):
-    """Supported technical indicators."""
+    """Common technical indicators (convenience constants).
+
+    Indicators are NOT restricted to these — any EMA/SMA period is accepted
+    as a string (e.g. "EMA40", "SMA125"). These members exist for readability
+    and backward compatibility; validation is done by `parse_indicator`.
+    """
 
     EMA50 = "EMA50"
     EMA100 = "EMA100"
@@ -31,15 +37,57 @@ class IndicatorType(str, Enum):
     VWAP = "VWAP"
 
 
+# Accepts any positive period: EMA<n> / SMA<n> (1-9999), or bare VWAP.
+_INDICATOR_RE = re.compile(r"^(EMA|SMA)([1-9]\d{0,3})$")
+
+
+def parse_indicator(name: str) -> Tuple[str, Optional[int]]:
+    """Parse an indicator string into (kind, period).
+
+    "EMA40" -> ("EMA", 40); "SMA200" -> ("SMA", 200); "VWAP" -> ("VWAP", None).
+    Accepts plain strings or IndicatorType members. Raises ValueError otherwise.
+    """
+    if isinstance(name, Enum):
+        name = name.value  # str(StrEnum) is "Class.MEMBER" on py3.12+, so unwrap
+    name = str(name).strip().upper()
+    if name == "VWAP":
+        return "VWAP", None
+    m = _INDICATOR_RE.match(name)
+    if not m:
+        raise ValueError(
+            f"Invalid indicator {name!r}; expected EMA<n>, SMA<n> (e.g. 'EMA40'), or 'VWAP'"
+        )
+    return m.group(1), int(m.group(2))
+
+
 class IndicatorConfig(BaseModel):
-    """Configuration for a technical indicator."""
+    """Configuration for a technical indicator.
+
+    `indicator` is any EMA/SMA period as a string ("EMA40", "SMA125") or "VWAP".
+    """
 
     bar: BarPeriod = Field(..., description="Time period for the indicator")
-    indicator: IndicatorType = Field(..., description="Type of technical indicator")
+    indicator: str = Field(..., description="Indicator: EMA<n>, SMA<n>, or VWAP")
 
     class Config:
         """Pydantic configuration."""
         use_enum_values = True
+
+    @validator("indicator", pre=True)
+    def validate_indicator(cls, v: object) -> str:
+        """Normalize and validate the indicator string (any period allowed)."""
+        kind, period = parse_indicator(v)
+        return "VWAP" if kind == "VWAP" else f"{kind}{period}"
+
+    @property
+    def kind(self) -> str:
+        """Indicator family: 'EMA', 'SMA', or 'VWAP'."""
+        return parse_indicator(self.indicator)[0]
+
+    @property
+    def period(self) -> Optional[int]:
+        """Indicator period (None for VWAP)."""
+        return parse_indicator(self.indicator)[1]
 
 
 class SymbolConfig(BaseModel):

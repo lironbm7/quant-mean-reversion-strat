@@ -8,7 +8,7 @@ import pandas as pd
 import yfinance as yf
 from loguru import logger
 
-from ..models.config import BarPeriod, IndicatorConfig, IndicatorType
+from ..models.config import BarPeriod, IndicatorConfig, parse_indicator
 from ..models.market_data import MarketData
 
 
@@ -164,34 +164,29 @@ class IndicatorCalculator:
     def calculate_indicator(
         cls,
         df: pd.DataFrame,
-        indicator_type: IndicatorType
+        indicator: str
     ) -> float:
-        """Calculate indicator value and return the latest value."""
+        """Calculate indicator value (any EMA/SMA period, or VWAP) and return latest."""
         try:
-            if indicator_type == IndicatorType.SMA50:
-                series = cls.calculate_sma(df['Close'], 50)
-            elif indicator_type == IndicatorType.SMA200:
-                series = cls.calculate_sma(df['Close'], 200)
-            elif indicator_type == IndicatorType.EMA50:
-                series = cls.calculate_ema(df['Close'], 50)
-            elif indicator_type == IndicatorType.EMA100:
-                series = cls.calculate_ema(df['Close'], 100)
-            elif indicator_type == IndicatorType.EMA200:
-                series = cls.calculate_ema(df['Close'], 200)
-            elif indicator_type == IndicatorType.VWAP:
+            kind, period = parse_indicator(indicator)
+            if kind == "EMA":
+                series = cls.calculate_ema(df['Close'], period)
+            elif kind == "SMA":
+                series = cls.calculate_sma(df['Close'], period)
+            else:  # VWAP
                 series = cls.calculate_vwap(df)
-            else:
-                raise ValueError(f"Unsupported indicator type: {indicator_type}")
 
             # Return the latest non-NaN value
             latest_value = series.dropna().iloc[-1] if not series.dropna().empty else None
             if latest_value is None:
-                raise ValueError(f"Could not calculate {indicator_type}")
+                raise ValueError(
+                    f"Could not calculate {indicator} (insufficient data for period {period})"
+                )
 
             return float(latest_value)
 
         except Exception as e:
-            logger.error(f"Error calculating {indicator_type}: {e}")
+            logger.error(f"Error calculating {indicator}: {e}")
             raise
 
 

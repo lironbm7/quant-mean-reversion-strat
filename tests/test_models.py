@@ -63,6 +63,27 @@ class TestIndicatorConfig:
         assert config.bar == BarPeriod.ONE_WEEK
         assert config.indicator == IndicatorType.EMA200
 
+    def test_arbitrary_ema_period(self):
+        """Any EMA/SMA period is accepted, not just the enum constants."""
+        config = IndicatorConfig(bar="4h", indicator="EMA120")
+        assert config.indicator == "EMA120"
+        assert config.kind == "EMA"
+        assert config.period == 120
+
+        sma = IndicatorConfig(bar="1d", indicator="sma45")  # normalized to upper
+        assert sma.indicator == "SMA45"
+        assert (sma.kind, sma.period) == ("SMA", 45)
+
+    def test_vwap_has_no_period(self):
+        config = IndicatorConfig(bar="1d", indicator="VWAP")
+        assert config.kind == "VWAP"
+        assert config.period is None
+
+    def test_invalid_indicator_rejected(self):
+        for bad in ("EMA", "EMA0", "RSI14", "EMA-5", ""):
+            with pytest.raises(ValidationError):
+                IndicatorConfig(bar="1d", indicator=bad)
+
 
 class TestSymbolConfig:
     """Test SymbolConfig model."""

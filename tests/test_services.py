@@ -90,6 +90,14 @@ class TestIndicatorCalculator:
         assert isinstance(value, float)
         assert value > 0
 
+    def test_calculate_indicator_arbitrary_period(self):
+        """Arbitrary EMA periods (not just 50/100/200) compute a value."""
+        ema40 = IndicatorCalculator.calculate_indicator(self.sample_df, "EMA40")
+        ema45 = IndicatorCalculator.calculate_indicator(self.sample_df, "EMA45")
+        assert isinstance(ema40, float) and ema40 > 0
+        # Different periods should generally give different levels.
+        assert ema40 != ema45
+
     def test_calculate_indicator_invalid(self):
         """Test error handling for invalid indicator type."""
         with pytest.raises(ValueError):

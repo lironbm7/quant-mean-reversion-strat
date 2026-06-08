@@ -35,6 +35,39 @@ All configuration lives in **GitHub Secrets** (Settings > Secrets and variables 
 | `THRESHOLD_PERCENTAGE` | `10.0` |
 | `COOLDOWN_HOURS` | `24` |
 
+### Indicators (any EMA/SMA period)
+
+Each indicator is a string: `EMA<n>`, `SMA<n>` (any period 1–9999), or `VWAP`.
+You are **not** limited to 50/100/200 — a stock that actually respects its
+`EMA40` or `4h/EMA120` is configured directly:
+
+```json
+{
+  "settings": { "threshold_percentage": 4.0, "cooldown_hours": 24 },
+  "symbols": [
+    { "symbol": "AAOI", "indicators": [
+        { "bar": "1d", "indicator": "EMA45" },
+        { "bar": "4h", "indicator": "EMA160" }
+    ]},
+    { "symbol": "TSM", "indicators": [
+        { "bar": "1d", "indicator": "EMA80" },
+        { "bar": "4h", "indicator": "EMA120" }
+    ]}
+  ]
+}
+```
+
+An alert fires when price comes within `threshold_percentage` of a configured
+line. `bar` is any of `1m,5m,15m,30m,1h,4h,1d,1w,1mo` (`4h` is resampled from
+1h). `config/symbols.json` is gitignored — for CI, paste the same JSON into the
+`SYMBOLS_CONFIG` secret.
+
+**Generating it from the trend-following research:** `python scripts/gen_symbols.py`
+pulls each ticker's reliable EMA bands from the sibling `trend-following` repo's
+output and **dedups overlapping lines by price level** — two lines within 1.5%
+of each other (e.g. `4h/EMA100` and `1d/EMA20`, which carry near-identical
+lookback memory) collapse to one, keeping the higher timeframe.
+
 ### Creating the `SLACK_BOT_TOKEN`
 
 1. Go to https://api.slack.com/apps → **Create New App** → **From scratch**. Name it (e.g. "Trading Bot") and pick your workspace.
